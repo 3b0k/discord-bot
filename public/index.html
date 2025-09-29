@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticket Systeem</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f7f7f7;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 20px;
+      }
+      h1 {
+        margin-bottom: 10px;
+      }
+      #createTicket,
+      #chatBox {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        width: 100%;
+        max-width: 500px;
+        margin-bottom: 20px;
+      }
+      input,
+      textarea {
+        width: 100%;
+        margin-bottom: 10px;
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+      }
+      button {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        background: #007bff;
+        color: white;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      #messages {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        padding: 10px;
+        border-radius: 4px;
+        background: #fafafa;
+      }
+      .message {
+        margin-bottom: 10px;
+      }
+      .message.customer {
+        color: #333;
+      }
+      .message.support {
+        color: #007bff;
+      }
+      #closeTicketBtn {
+        background: #dc3545;
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Support Tickets</h1>
+
+    <div id="createTicket">
+      <h2>Nieuw ticket aanmaken</h2>
+      <input type="text" id="name" placeholder="Jouw naam" required />
+      <textarea
+        id="message"
+        placeholder="Beschrijving van je vraag"
+        rows="4"
+        required
+      ></textarea>
+      <button id="createTicketBtn">Ticket aanmaken</button>
+      <p id="ticketInfo"></p>
+    </div>
+
+    <div id="chatBox" style="display: none">
+      <h2>Chat ticket: <span id="ticketIdDisplay"></span></h2>
+      <div id="messages"></div>
+      <input type="text" id="author" placeholder="Jouw naam/ID" required />
+      <textarea
+        id="chatMessage"
+        placeholder="Typ je bericht"
+        rows="2"
+      ></textarea>
+      <button id="sendMessageBtn">Verstuur bericht</button>
+      <button id="closeTicketBtn">Sluit ticket</button>
+    </div>
+
+    <script>
+      let currentTicketId = null;
+
+      const createTicketBtn = document.getElementById("createTicketBtn");
+      const sendMessageBtn = document.getElementById("sendMessageBtn");
+      const closeTicketBtn = document.getElementById("closeTicketBtn");
+
+      createTicketBtn.onclick = async () => {
+        const name = document.getElementById("name").value;
+        const message = document.getElementById("message").value;
+        if (!name || !message) return alert("Vul alles in!");
+
+        const res = await fetch("/create-ticket", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, message }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          currentTicketId = data.ticketId;
+          document.getElementById("ticketIdDisplay").innerText =
+            currentTicketId;
+          document.getElementById("ticketInfo").innerText =
+            "Ticket aangemaakt! Je kan nu chatten.";
+          document.getElementById("chatBox").style.display = "block";
+          startMessagePolling();
+        } else {
+          alert("Fout bij ticket aanmaken: " + data);
+        }
+      };
+
+      sendMessageBtn.onclick = async () => {
+        const author = document.getElementById("author").value;
+        const content = document.getElementById("chatMessage").value;
+        if (!author || !content || !currentTicketId) return;
+
+        const res = await fetch(`/ticket/${currentTicketId}/message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ author, content }),
+        });
+
+        if (res.ok) {
+          document.getElementById("chatMessage").value = "";
+        } else {
+          alert("Fout bij versturen bericht");
+        }
+      };
+
+      closeTicketBtn.onclick = async () => {
+        if (!currentTicketId) return;
+        const res = await fetch(`/ticket/${currentTicketId}/close`, {
+          method: "POST",
+        });
+        if (res.ok) {
+          alert("Ticket gesloten ✅");
+        } else {
+          alert("Fout bij sluiten van ticket");
+        }
+      };
+
+      // -------------------- Real-time polling --------------------
+      async function startMessagePolling() {
+        const messagesDiv = document.getElementById("messages");
+        let lastFetched = 0;
+
+        setInterval(async () => {
+          if (!currentTicketId) return;
+          const res = await fetch(
+            `/ticket/${currentTicketId}/messages?after=${lastFetched}`,
+          );
+          if (!res.ok) return;
+          const msgs = await res.json();
+
+          msgs.forEach((msg) => {
+            const div = document.createElement("div");
+            div.classList.add("message", msg.authorType || "customer");
+            div.innerText = `${msg.author}: ${msg.content}`;
+            messagesDiv.appendChild(div);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            lastFetched = new Date(msg.createdAt).getTime();
+          });
+        }, 1000);
+      }
+    </script>
+  </body>
+</html>
